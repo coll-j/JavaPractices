@@ -5,6 +5,7 @@
  */
 package TextEditor;
 
+import java.awt.Color;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
@@ -14,8 +15,23 @@ import java.io.FileWriter;
 import java.io.IOException;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
+import javax.swing.ActionMap;
+import javax.swing.BoxLayout;
+import javax.swing.InputMap;
+import javax.swing.JDialog;
 import javax.swing.JFileChooser;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
+import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CannotUndoException;
+import javax.swing.undo.UndoManager;
 
 /**
  *
@@ -45,6 +61,10 @@ public class TextFrame extends javax.swing.JFrame {
         jMenu1 = new javax.swing.JMenu();
         jMenu2 = new javax.swing.JMenu();
         fc = new JFileChooser();
+        undo = new UndoManager();
+        textIM = jTextArea1.getInputMap();
+        textAM = jTextArea1.getActionMap();
+        painter = new DefaultHighlighter.DefaultHighlightPainter(Color.yellow);
         
         FileNameExtensionFilter txtFilter = new FileNameExtensionFilter("Plain text", "txt");
         fc.setFileFilter(txtFilter);
@@ -55,6 +75,7 @@ public class TextFrame extends javax.swing.JFrame {
         jTextArea1.setColumns(20);
         jTextArea1.setRows(5);
         jTextArea1.setLineWrap(true);
+        jTextArea1.getDocument().addUndoableEditListener(undo);
         jScrollPane1.setViewportView(jTextArea1);
         jScrollPane1.setHorizontalScrollBarPolicy(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         
@@ -116,6 +137,8 @@ public class TextFrame extends javax.swing.JFrame {
                 cb.setContents(ss, null);
             }
         };
+        textIM.put(KeyStroke.getKeyStroke("control C"), "copy");
+        textAM.put("copy", Copy);
 
         Action Paste = new AbstractAction("Paste"){
             @Override
@@ -123,32 +146,122 @@ public class TextFrame extends javax.swing.JFrame {
                 jTextArea1.paste();
             }
         };
+        textIM.put(KeyStroke.getKeyStroke("control V"), "Paste");
+        textAM.put("Paste",Paste);
 
         Action Cut = new AbstractAction("Cut"){
             @Override
             public void actionPerformed(ActionEvent arg0){
-
+                String s = jTextArea1.getSelectedText();
+                StringSelection ss = new StringSelection(s);
+                Clipboard cb = Toolkit.getDefaultToolkit().getSystemClipboard();
+                cb.setContents(ss, null);
+                jTextArea1.setText(jTextArea1.getText().replace(s, ""));
             }
         };
+        textIM.put(KeyStroke.getKeyStroke("control X"), "cut");
+        textAM.put("cut", Cut);
         
         Action Undo = new AbstractAction("Undo"){
             @Override
             public void actionPerformed(ActionEvent arg0){
-
+                try {
+                    if(undo.canUndo()){
+                        undo.undo();
+                    }
+                } catch (CannotUndoException e) {
+                    
+                }
             }
         };
+        textIM.put(KeyStroke.getKeyStroke("control Z"), "undo");
+        textAM.put("undo", Undo);
 
+        Action Redo = new AbstractAction("Redo"){
+            @Override
+            public void actionPerformed(ActionEvent arg0){
+                try {
+                    if(undo.canRedo()){
+                        undo.redo();
+                    }
+                } catch (CannotRedoException e) {
+                    
+                }
+            }
+        };
+        textIM.put(KeyStroke.getKeyStroke("control Y"), "redo");
+        textAM.put("redo", Redo);
+        
         Action Find = new AbstractAction("Find"){
             @Override
             public void actionPerformed(ActionEvent arg0){
+                JPanel panel = new JPanel();
+                panel.add(new JLabel("Find"));
+                JTextField inputField = new JTextField(20);
+                panel.add(inputField);
+                Object[] options = {"Find next", "Quit"};
+                int result = JOptionPane.showOptionDialog(null, panel, "Find", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+                String search = null;
+                if(result == 0) search = inputField.getText();
+                if(search != null){
+                    jTextArea1.setCaretPosition(0);
+                    int caret = jTextArea1.getCaretPosition();
+                    String text = jTextArea1.getText().toLowerCase();
+                    while(result == 0) {
+                        try {
+                            search = inputField.getText();
+                            caret = text.indexOf(search, caret);
+                            if(caret == -1) JOptionPane.showMessageDialog(null, "Can't find further", "Not Found", JOptionPane.WARNING_MESSAGE);
+                            jTextArea1.getHighlighter().addHighlight(caret, caret+search.length(), painter);
+                            caret += search.length();
+                        } catch (BadLocationException e){
+
+                        }
+                        result = JOptionPane.showOptionDialog(null, panel, "Find", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[1]);
+                    }
+                    panel.removeAll();
+                    jTextArea1.getHighlighter().removeAllHighlights();
+                }
 
             }
         };
+        textIM.put(KeyStroke.getKeyStroke("control F"), "find");
+        textAM.put("find", Find);
 
         Action FindReplace = new AbstractAction("Find and Replace"){
             @Override
             public void actionPerformed(ActionEvent arg0){
+                JPanel panel = new JPanel();
+                panel.add(new JLabel("Find"));
+                JTextField inputField = new JTextField(20);
+                panel.add(inputField);
+                panel.add(new JLabel("Replace with"));
+                JTextField outputField = new JTextField(20);
+                panel.add(outputField);
+                Object[] options = {"Replace next", "Quit"};
+                int result = JOptionPane.showOptionDialog(null, panel, "Find", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, null);
+                String search = null;
+                String output = null;
+                if(result == 0) {
+                    search = inputField.getText();
+                    output = outputField.getText();
+                }
+                int caret;
+                String text = jTextArea1.getText().toLowerCase();
+                while(result == 0) {
+                    try {
+                        search = inputField.getText();
+                        caret = text.indexOf(search);
+                        if(caret == -1) JOptionPane.showMessageDialog(null, "Can't find further", "Not Found", JOptionPane.WARNING_MESSAGE);
+                        jTextArea1.select(caret, caret + search.length());
+                        jTextArea1.replaceSelection(output);
+                        text = jTextArea1.getText().toLowerCase();
+                    } catch (IllegalArgumentException e){
 
+                    }
+                    result = JOptionPane.showOptionDialog(null, panel, "Find", JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, null);
+                }
+                panel.removeAll();
             }
         };
 
@@ -157,6 +270,7 @@ public class TextFrame extends javax.swing.JFrame {
         jMenu2.add(Paste);
         jMenu2.add(Cut);
         jMenu2.add(Undo);
+        jMenu2.add(Redo);
         jMenu2.add(Find);
         jMenu2.add(FindReplace);
 
@@ -250,4 +364,8 @@ public class TextFrame extends javax.swing.JFrame {
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JTextArea jTextArea1;
     private JFileChooser fc;
+    private UndoManager undo;
+    private InputMap textIM;
+    private ActionMap textAM;
+    private Highlighter.HighlightPainter painter;
 }
